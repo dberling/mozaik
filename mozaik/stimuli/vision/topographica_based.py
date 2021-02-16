@@ -452,6 +452,8 @@ class FlatDisk(TopographicaBasedVisualStimulus):
     on a constant background of *background_luminance* luminance.
     The luminance of the disk is specified by the *contrast* parameter,
     and is thus *background_luminance* + *background_luminance* \* (*self.contrast*/100.0).
+    Smoothing of the disk border with Gaussian fall-off is optional and 
+    width controlled with *smoothing*.
 
     Notes
     -----
@@ -459,11 +461,12 @@ class FlatDisk(TopographicaBasedVisualStimulus):
     """
     contrast = SNumber(dimensionless,bounds=[0,100.0],doc="Contrast of the stimulus")
     radius = SNumber(degrees, doc="The radius of the disk - in degrees of visual field")
+    smoothing = SNumber(degrees, bounds=[0,None], doc="Width of the Gaussian smoothing at the disk border - in degrees of visual field")
 
     def frames(self):
         self.current_phase=0
         while True:  
-            d = imagen.Disk(smoothing=0.0,
+            d = imagen.Disk(smoothing=self.smoothing,
                             size=self.radius*2,
                             offset = self.background_luminance,
                             scale = self.background_luminance*(self.contrast/100.0),
