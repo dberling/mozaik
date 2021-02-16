@@ -2255,3 +2255,67 @@ class MapTwoStrokeGabor(VisualExperiment):
 
     def do_analysis(self, data_store):
         pass
+
+class MeasureDot(VisualExperiment):
+    """
+    Cortical response to a dot.
+
+    This experiment will show a filled circle which will be presented
+    at a given position in each trial.
+    
+    Parameter
+    ----------
+    model : Model
+        The model on which to execute the experiment.
+
+    Other parameters
+    ----------------
+
+    time_per_image : float
+        The time it takes for the experiment to change single images 
+        Every time_per_image a new instance of sparse noise will be 
+        presented
+
+    total_number_images : int
+        The total number of images that will be presented
+    
+    num_trials : int
+           Number of trials each each stimulus is shown.
+           
+    grid_size: int
+           the grid will have grid_size x grid_size spots
+           
+    experiment_seed : int
+     sets a particular seed at the beginning of each experiment
+     
+    grid: bool
+     If true makes the patterns stick to a grid, otherwise the 
+     center of the pattern is distribuited randomly
+    """
+    
+    required_parameters = ParameterSet({
+            'num_trials' : int,
+            'contrast' : float,
+            'radius' : float,
+            'smoothing' : float,
+            'duration' : float
+    })
+    
+    def __init__(self,model,parameters):
+        VisualExperiment.__init__(self, model,parameters)
+    
+        for k in xrange(0, self.parameters.num_trials):
+           
+            self.stimuli.append(topo.FlatDisk(
+				                frame_duration = self.frame_duration,
+                                size_x=model.visual_field.size_x,
+                                size_y=model.visual_field.size_y,
+                                location_x=0.0,
+                                location_y=0.0,
+                                background_luminance=self.background_luminance,
+                                duration=self.parameters.duration,
+                                density=self.density,
+                                trial=k))
+   
+    def do_analysis(self, data_store):
+        pass
