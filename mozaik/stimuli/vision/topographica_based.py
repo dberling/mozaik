@@ -453,7 +453,7 @@ class FlatDisk(TopographicaBasedVisualStimulus):
     The luminance of the disk is specified by the *contrast* parameter,
     and is thus *background_luminance* + *background_luminance* \* (*self.contrast*/100.0).
     Smoothing of the disk border with Gaussian fall-off is optional and 
-    width controlled with *smoothing*.
+    its width controlled with *smoothing*.
 
     Notes
     -----
