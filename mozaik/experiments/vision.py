@@ -2260,8 +2260,9 @@ class MeasureDot(VisualExperiment):
     """
     Cortical response to a dot.
 
-    This experiment will show a filled circle which will be presented
-    at a given position in each trial.
+    This experiment will show a filled circle with optional Gaussian 
+    smoothing at the borderswhich will be presented at a given position
+    in each trial.
     
     Parameter
     ----------
@@ -2271,26 +2272,23 @@ class MeasureDot(VisualExperiment):
     Other parameters
     ----------------
 
-    time_per_image : float
-        The time it takes for the experiment to change single images 
-        Every time_per_image a new instance of sparse noise will be 
-        presented
+    radius : float
+        The radius of the solid circle. The smooth fall-off will be 
+        added outside this radius.
+    
+    smoothing: float
+        The sigma of the Gaussian fall-off added outside the radius of
+        the solid circle. The maximum of the Gaussian starts at 
+        *radius*. Set to 0 for no smoothing.
+    
+    duration : float
+        The duration of single presentation of the stimulus.
 
-    total_number_images : int
-        The total number of images that will be presented
+    contrast : float 
+        Contrast (expressed as % : 0-100).
     
     num_trials : int
-           Number of trials each each stimulus is shown.
-           
-    grid_size: int
-           the grid will have grid_size x grid_size spots
-           
-    experiment_seed : int
-     sets a particular seed at the beginning of each experiment
-     
-    grid: bool
-     If true makes the patterns stick to a grid, otherwise the 
-     center of the pattern is distribuited randomly
+        Number of trials the stimulus is shown.
     """
     
     required_parameters = ParameterSet({
