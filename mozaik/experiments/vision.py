@@ -2307,14 +2307,17 @@ class MeasureDot(VisualExperiment):
         for k in xrange(0, self.parameters.num_trials):
            
             self.stimuli.append(topo.FlatDisk(
-				                frame_duration = self.frame_duration,
-                                size_x=model.visual_field.size_x,
-                                size_y=model.visual_field.size_y,
+                                contrast = self.parameters.contrast,
+                                radius = self.parameters.radius,
+                                smoothing = self.parameters.smoothing,
+                                background_luminance=self.background_luminance,
+                                density=self.density,
                                 location_x=0.0,
                                 location_y=0.0,
-                                background_luminance=self.background_luminance,
+                                size_x=model.visual_field.size_x,
+                                size_y=model.visual_field.size_y,
+				frame_duration = self.frame_duration,
                                 duration=self.parameters.duration,
-                                density=self.density,
                                 trial=k))
    
     def do_analysis(self, data_store):
