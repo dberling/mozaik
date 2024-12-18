@@ -5,10 +5,11 @@ from parameters import ParameterSet
 from mozaik.stimuli import InternalStimulus
 from mozaik.tools.distribution_parametrization import MozaikExtendedParameterSet
 from collections import OrderedDict
-from mozaik.sheets.direct_stimulator import OpticalStimulatorArrayChR
+from mozaik.sheets.direct_stimulator import OpticalStimulatorArrayChR, OpticalStimulatorArrayMorphologyChR
 import matplotlib
 from copy import deepcopy
 import random
+import warnings
 
 
 class CorticalStimulationWithOptogeneticArray(Experiment):
@@ -53,10 +54,20 @@ class CorticalStimulationWithOptogeneticArray(Experiment):
                     update_interval : float (ms)
                     depth_sampling_step : float (μm)
                     light_source_light_propagation_data : str
-                These parameters are the same as the parameters of
+                    morphology : None or ParameterSet
+                        If None, no morphology is simulated. Pass Parameterset
+                        with following params to simulate morphology:
+                            neuron_node_data_path : str (omit if morphology=False)
+                            neuron_comp_data_path : str (omit if morphology=False)
+                            soma_depth : int            (omit if morphology=False)
+                The parameters correspond to
                 mozaik.sheets.direct_stimulator.OpticalStimulatorArrayChR class,
-                except that it must not contain the parameters
-                *stimulating_signal* and *stimulating_signal_parameters* - those
+                and if morphology is included should be extended by the listed 3
+                parameters of
+                mozaik.sheets.direct_simulator.OpticalStimulatorArrayMorphologyChR.
+                Parameters that are included in the original stimulator classes 
+                but must not be contained in the here passed parameters are
+                *stimulating_signal* and *stimulating_signal_parameters*. Those
                 must be set by the specific experiments.
     """
 
@@ -77,8 +88,25 @@ class CorticalStimulationWithOptogeneticArray(Experiment):
             "spacing",
             "update_interval",
             "depth_sampling_step",
-            "light_source_light_propagation_data",
+            "light_source_light_propagation_data"
         }
+        if "morphology" not in parameters['stimulator_array_parameters']:
+            warnings.warn("Parameter 'morphology' should be given through stimulator_array_parameters. Setting 'morphology' to None assuming you want to ignore neuron morphology for the optogenetic mechanism. Future versions will require explicit setting of 'morphology' to None.", category=FutureWarning)
+            parameters['stimulator_array_parameters']['morphology'] = None
+
+        # whether we simulate morphology (choose stimulator from direct_stimulator.py & update params)
+        if parameters['stimulator_array_parameters']['morphology'] != None:
+            stimulator_array_keys.update([
+                parameters['stimulator_array_parameters']['morphology']['neuron_node_data_path'],
+                parameters['stimulator_array_parameters']['morphology']['neuron_comp_data_path'],
+                parameters['stimulator_array_parameters']['morphology']['soma_depth']
+            ])
+            self.stimulator_class = OpticalStimulatorArrayMorphologyChR
+            self.stimulator_class_name = 'OpticalStimulatorArrayMorphologyChR'
+        else:
+            self.stimulator_class = OpticalStimulatorArrayChR
+            self.stimulator_class_name = 'OpticalStimulatorArrayChR'
+        del parameters['stimulator_array_parameters']['morphology'] # only needed to chose stim class
         p = self.parameters
         assert len(p.sheet_list) == len(p.sheet_intensity_scaler), (
             "sheet_list and sheet_intensity_scaler must have equal lengths, not %d and %d"
@@ -121,7 +149,7 @@ class CorticalStimulationWithOptogeneticArray(Experiment):
             sap.stimulating_signal_parameters.intensity *= p.sheet_intensity_scaler[k]
             sap.transfection_proportion = p.sheet_transfection_proportion[k]
             d[sheet] = [
-                OpticalStimulatorArrayChR(
+                self.stimulator_class(
                     model.sheets[sheet], sap, self.shared_scs[sheet]
                 )
             ]
@@ -143,7 +171,7 @@ class CorticalStimulationWithOptogeneticArray(Experiment):
                     frame_duration=sap.stimulating_signal_parameters.duration,
                     duration=sap.stimulating_signal_parameters.duration,
                     trial=trial,
-                    direct_stimulation_name="OpticalStimulatorArrayChR",
+                    direct_stimulation_name=self.stimulator_class_name,
                     direct_stimulation_parameters=sap,
                 )
             )
