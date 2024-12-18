@@ -23,6 +23,8 @@ import pylab
 from scipy.integrate import odeint
 import pickle
 import scipy.interpolate
+from scipy.interpolate import interp1d
+from copy import copy
 from mpl_toolkits.mplot3d import Axes3D
 from mozaik.controller import Global
 import matplotlib
@@ -34,6 +36,8 @@ import io
 from numba import jit
 
 from builtins import zip
+
+from RONs import LoadReducedOptogeneticNeurons
 
 from mpi4py import MPI
 
@@ -702,6 +706,485 @@ class OpticalStimulatorArrayChR(OpticalStimulatorArray):
         pylab.savefig(Global.root_directory +'OpticalStimulatorArrayTest_' + self.sheet.name.replace('/','_') + '.png')
         pylab.clf()
 
+class ChR_dynamics:
+    """
+    Model for ChrimsonR as developed by Sabatier et al and used in Antolik et al. 2021.
+
+    This implementation is based on the same model as the ChR-model above but enables faster, 
+    vectorized computation of channel dynamics.
+    """
+
+    def __init__(self):
+        self.gO1 = 50e-6  # nS     1 50 fS (= 50e-6 nS) based on measuremnts of bacteriorhodopsin (Nagel et al. 1995)
+        self.gO2 = 8.5e-6 # nS     # ratio g1/g2 from Antolik et al. 2021 (based on Sabatier et al.,biorxiv)
+
+        # switching rates in 1/fs for flux in photons/cm2/fs for ChrimsonR (Sabatier et al., biorxiv)
+        self.PhoC1toO1 = 1.0993e-4 * 50
+        self.PhoC2toO2 = 7.1973e-5 * 50
+        self.PhoC1toC2 = 1.936e-6  * 50
+        self.PhoC2toC1 = 1.438e-5  * 50
+
+        self.O1toC1 = 0.125
+        self.O2toC2 = 0.015
+        self.O2toS  = 0.0001
+        self.C2toC1 = 1e-7
+        self.StoC1  = 3e-6
+
+        self.default_sampling_period = 0.1 # ms
+
+        self.state0 = np.array([0., 0., 0.8, 0.2, 0.0])
+
+    def update_state0(self, state):
+        self.state0 = state
+
+    def _step(self, state: np.ndarray, I: float, sampling_period: float) -> np.ndarray:
+
+        O1,O2,C1,C2,S = state
+        _O1 = - self.O1toC1 * O1                    + self.PhoC1toO1*I * C1
+        _O2 = - self.O2toC2 * O2                    + self.PhoC2toO2*I * C2            - self.O2toS * O2
+        _S  = (- self.StoC1 * S + self.O2toS * O2) * np.ones_like(I)
+        _C1 = self.O1toC1 * O1    - self.PhoC1toO1*I * C1  - self.PhoC1toC2*I * C1   + self.C2toC1 * C2             + self.PhoC2toC1*I * C2  + self.StoC1 * S
+        _C2 = self.O2toC2 * O2    - self.C2toC1 * C2             - self.PhoC2toC1*I * C2   + self.PhoC1toC2*I * C1  - self.PhoC2toO2*I * C2
+
+        return np.array([_O1,_O2,_C1,_C2,_S]) * sampling_period
+
+    def _forward_integration(self, flux_photonsPERcm2_fs, sampling_period):
+        """
+        Forward integrate evolution of channel state for many channels in vectorized manner.
+
+        Input: flux_photons/cm2/fs in shape: (n_times, n_channels)
+        Returns single-channel Chrimson conductance in nS.
+
+        Note: Currently, all channels are initialized with the same state when function is called.
+        """
+        y0 = self.state0
+        y0 = np.tile(y0, (flux_photonsPERcm2_fs.shape[1],1)).T
+
+        channel_states = []
+        channel_state = y0.copy()
+        for intensity in flux_photonsPERcm2_fs:
+            channel_state += self._step(channel_state, I=intensity, sampling_period=sampling_period)
+            channel_states.append(copy(channel_state))
+        channel_states = np.array(channel_states)
+        O1 = channel_states[:,0,:]
+        O2 = channel_states[:,1,:]
+        channel_conductance_nS = O1 * self.gO1 + O2 * self.gO2
+        return channel_conductance_nS
+
+    def _order_of_magnitude(self, number):
+        if number == 0:
+            return float('-inf')  # Logarithm of zero is undefined, return negative infinity
+        return round(math.log10(abs(number)))
+
+    def _define_sampling(self, flux_photonsPERcm2_fs):
+        """
+        Input flux in photons/cm2/fs, receive sampling_period in ms.
+        """
+        sampling_period = self.default_sampling_period
+        int_max = np.max(flux_photonsPERcm2_fs)
+        if int_max > 1e3:
+            sampling_period /= 10**(self._order_of_magnitude(int_max)) / 1e3
+        return sampling_period
+
+    def _interpolate_time_axis(self, array, update_interval, new_update_interval):
+        # Determine the original and new time points
+        n_time_steps = array.shape[1]
+        original_time = np.arange(0, n_time_steps * update_interval, update_interval)
+        new_time = np.arange(0, n_time_steps * update_interval, new_update_interval)
+
+        # Interpolate the entire array along the second axis (time)
+        interp_func = interp1d(original_time, array, axis=1, kind='linear', fill_value="extrapolate")
+        return interp_func(new_time)
+
+    def calculate(self, fluxes_photonsPERcm2_fs, update_interval):
+        """
+        Params:
+        -------
+        fluxes_photonsPERcm2: numpy.ndarray
+            Light flux in photons/(cm**2 * fs). Should have shape (n_channels, n_times)
+        update_interval: float
+            Sampling interval in ms.
+
+        Returns:
+        --------
+        ChR_conductance: numpy.ndarray
+            Single channel ChR conductance in nS over time in ms. Shape (n_channels, n_times).
+        """
+        calculation_update_interval = self._define_sampling(fluxes_photonsPERcm2_fs.max())
+        fluxes_upscaled = self._interpolate_time_axis(
+            fluxes_photonsPERcm2_fs, update_interval=update_interval, new_update_interval=calculation_update_interval
+        )
+        ChR_conductance = self._forward_integration(
+            flux_photonsPERcm2_fs=fluxes_upscaled.T, sampling_period=calculation_update_interval
+        ).T
+        ChR_conductance = self._interpolate_time_axis(
+            ChR_conductance, update_interval=calculation_update_interval, new_update_interval=update_interval
+        )
+        return ChR_conductance
+
+
+class OpticalStimulatorArrayMorphologyChR(DirectStimulator):
+    """
+    ToDo: Update docstring.
+
+    This class assumes there is a regular grid of stimulators (parameters `size` and
+    `spacing` control the geometry of the grid), with each stimulator stimulating
+    indiscriminately the local population of neurons in the given sheet. The
+    stimulations from different stimulators add up linearly.
+
+    The temporal profile of the stimulator is given by function specified in the
+    parameter `stimulating_signal`. This function receives a list of stimulator
+    x coordinates and y coordinates, the update interval, and any extra
+    user parameters specified in the parameter `stimulating_signal_parameters`.
+    It should return a 3D numpy array of size:
+    coor_x.shape[0] x coor_x.shape[1] x (stimulation_duration/update_interval)
+
+    The function specified in `stimulating_signal` should thus look like this:
+
+    def stimulating_signal_function(sheet, coor_x, coor_y, update_interval, parameters)
+
+    Parameters
+    ----------
+    parameters : ParameterSet
+               The dictionary of required parameters.
+                
+    sheet : Sheet
+          The sheet in which to stimulate neurons.
+    
+    Other parameters
+    ----------------
+    
+    size : float (μm) 
+                     The size of the stimulator grid
+
+    spacing : float (μm)
+                     The distance between stimulators (the number of stimulators will
+                     thus be (size/distance)^2)
+
+    update_interval : float (ms)
+                     The interval at which the stimulator is updated. Thus the length of
+                     the stimulation is update_interval times the number of values
+                     returned by the function specified in the `stimulating_signal`
+                     parameter.
+
+    depth_sampling_step : float (μm)
+                     For optimization reasons we will assume that neurons lie at
+                     discrete range of depth spaced at `depth_sampling_step`
+
+    light_source_light_propagation_data : str
+                     The path to the radial profile light dispersion data.
+
+    stimulating_signal : str
+                     The python path to a function that defines the stimulation.
+
+    stimulating_signal_parameters : ParameterSet
+                     The parameters passed to the function specified in
+                     `stimulating_signal`
+
+    transfection_proportion : float
+                     Set the proportion of transfected cells in each sheet in
+                     sheet_list. Must have equal length to sheet_list. The constants
+                     must be in the range (0,1) - 0 means no cells, 1 means
+                     all cells.
+
+    neuron_node_data_path : str
+                     Path where numpy array with neuron morphology node data is located.
+
+    neuron_comp_data_path : str
+                     Path where numpy array with neuron morphology comp data is located.
+
+    soma_depth : int
+                     Depth at which the soma of the morphologies is assumed to be. The 
+                     depth of the network point neurons as originally defined in 
+                     sheet.pop.positions[2] is ignored.
+
+    Notes
+    -----
+
+    """
+
+    required_parameters = ParameterSet({
+            'size': float,
+            'spacing' : float,
+            'stimulating_signal' : str,
+            'stimulating_signal_parameters' : ParameterSet,
+            'update_interval' : float,
+            'depth_sampling_step' : float,
+            'light_source_light_propagation_data' : str,
+            'transfection_proportion' : float,
+            'neuron_node_data_path': str,
+            'neuron_comp_data_path': str,
+            'soma_depth': int
+    })
+
+    def __init__(self, sheet,parameters,shared_scs=None,optimized_scs=True):
+        DirectStimulator.__init__(self, sheet,parameters)
+
+        assert math.fmod(self.parameters.size,self.parameters.spacing) < 0.000000001 , "Error the size has to be multiple of spacing!"
+        assert math.fmod(self.parameters.size / self.parameters.spacing /2,2) < 0.000000001 , "Error the size and spacing have to be such that they give odd number of elements!"
+
+        # set up properties of stimulator
+        axis_coors = numpy.arange(
+                0,
+                self.parameters.size+self.parameters.spacing,
+                self.parameters.spacing
+        ) - self.parameters.size/2.0
+
+        self.n = int(numpy.floor(len(axis_coors)/2.0))
+        self.stimulator_coords_y, self.stimulator_coords_x = numpy.meshgrid(axis_coors, axis_coors)
+        # setp stimulating signal
+        signal_function = load_component(self.parameters.stimulating_signal)
+        self.stimulator_signals = signal_function(
+                sheet,
+                self.stimulator_coords_x,
+                self.stimulator_coords_y,
+                self.parameters.update_interval,
+                self.parameters.stimulating_signal_parameters
+        )
+        # load neuron positions, which are in visual coordinates for x-,y- dimension and um for z.
+        x_neurons, y_neurons = self.sheet.vf_2_cs(
+            self.sheet.pop.positions[0],self.sheet.pop.positions[1]
+        )
+        # set all neurons depth at soma to chosen parameter
+        z_neurons = self.parameters.soma_depth * np.ones(shape=self.sheet.pop.positions[2].shape)
+        # initialize morphology of neurons
+        RONs = LoadReducedOptogeneticNeurons(
+            point_neuron_positions=np.array([
+                x_neurons, y_neurons, z_neurons
+            ]),
+            neuron_node_data_path=self.parameters.neuron_node_data_path,
+            neuron_comp_data_path=self.parameters.neuron_comp_data_path
+        )
+        # calculate light fluxes and extract their time evolution from self.stimulator_signals
+        RONs.calc_light_fluxes(
+                func_xyz_to_flux=self.light_flux_lookup_photonsPERfsPERcm2,
+                func_args=dict(min_depth=self.sheet.parameters.min_depth,
+                               max_depth=self.sheet.parameters.max_depth,
+                               depth_sampling_step=self.parameters.depth_sampling_step)
+                )
+        self.stimulation_duration = numpy.shape(RONs.light_fluxes_over_time)[1] * self.parameters.update_interval
+        self.times = numpy.arange(0,self.stimulation_duration,self.parameters.update_interval)
+
+        # init ChR
+        ChR_model = ChR_dynamics()
+
+        # calculate effective optogenetic somatic conductance
+        RONs.calc_effective_somatic_ChR_conductance(
+            func_flux_to_conductance=ChR_model.calculate,
+            func_args=dict(update_interval=self.parameters.update_interval)
+        )
+        # transform into injection current
+        # 0.060V average membrane potential, current should be nA, which is I [nA] = G[nS] * U [V]
+        self.mixed_signals_current = RONs.conductance_nS_over_time * 0.06
+
+        assert numpy.shape(self.mixed_signals_current) == (self.sheet.pop.size,self.stimulator_signals.shape[2]), "ERROR: mixed_signals_current doesn't have the desired size:" + str(self.mixed_signals_current.shape) + " vs " +str((self.sheet.pop.size,stimulator_signals.shape[2]))
+
+        if optimized_scs:
+            print("Warning: optimized_scs not implemented for OpticalStimulatorArrayMorphologyChR")
+            self.setup_scs(shared_scs)
+        else:
+            self.setup_scs(shared_scs)
+
+        self.stimulator_signals = self.compress_array(self.stimulator_signals)
+
+
+    def light_flux_lookup_photonsPERfsPERcm2(self, xx, yy, zz, min_depth, max_depth, depth_sampling_step):
+        """
+        Important difference to previous light flux look-up which returns photons/s/cm2 --> note the change
+        from per-second to per-femto-second (*1e-15) which enables using smaller numbers and saves memory
+        in the large arrays for the ChR conductance calculation.
+
+        Params:
+        -------
+        xx, yy, zz: np.ndarray
+            Coordinates of the neurons.
+        min_depth, max_depth, depth_sampling_step: see OpticalStimulatorArray.
+
+        Important Note:
+        The light profile used for the intensity look-up extends only to a depth of z=1015 um, make sure the morphology 
+        does not reach deeper.
+
+        """
+        assert zz.min()>min_depth, "zz.min() is "+str(zz.min())+" while min_depth is "+str(min_depth)
+        assert zz.max()<max_depth, "zz.max() is "+str(zz.max())+" while max_depth is "+str(max_depth)
+        n_neurons = len(xx)
+        n = self.n
+        stimulator_coords_y, stimulator_coords_x = self.stimulator_coords_y, self.stimulator_coords_x
+
+        #let's load up disperssion data and setup interpolation
+        f = open(self.parameters.light_source_light_propagation_data,'rb')
+        radprofs = pickle.load(f,encoding='latin1')
+        f.close()
+        light_flux_lookup =  scipy.interpolate.RegularGridInterpolator(
+            (np.linspace(0,1080,radprofs.shape[0]), 
+                numpy.linspace(0,1,radprofs.shape[1])*299.7*numpy.sqrt(2)),
+            radprofs,
+            method='linear',
+            bounds_error=False,
+            fill_value=0
+        )
+        # the constant translating the data in radprofs to photons/s/cm^2
+        K = 2.97e26
+        W = 3.9e-10
+
+        # now let's calculate mixing weights, this will be a matrix nxm where n is 
+        # the number of neurons in the population and m is the number of stimulators
+        x =  stimulator_coords_x.flatten()
+        y =  stimulator_coords_y.flatten()
+        zeros = numpy.zeros(len(x))
+
+        mixing_templates=[]
+        for depth in numpy.arange(min_depth,max_depth+depth_sampling_step,depth_sampling_step):
+            temp = numpy.reshape(
+                    light_flux_lookup(numpy.transpose
+                        ([zeros+depth,numpy.sqrt(numpy.power(x,2)  + numpy.power(y,2))])
+                    ),
+                    (2*n+1,2*n+1)
+            )
+            a  = temp[n,n:]
+            cutof = numpy.argmax((numpy.sum(a)-numpy.cumsum(a))/numpy.sum(a) < 0.01)
+            assert numpy.shape(temp[n-cutof:n+cutof+1,n-cutof:n+cutof+1]) == (2*cutof+1,2*cutof+1), str(numpy.shape(temp[n-cutof:n+cutof,n-cutof:n+cutof])) + 'vs' + str((2*cutof+1,2*cutof+1))
+            mixing_templates.append((temp[n-cutof:n+cutof+1,n-cutof:n+cutof+1],cutof))
+
+        # find coordinates given spacing and shift by half the array size
+        nearest_ix = numpy.rint(xx/self.parameters.spacing)+n
+        nearest_iy = numpy.rint(yy/self.parameters.spacing)+n
+        nearest_iz = numpy.rint((zz-min_depth)/self.parameters.depth_sampling_step)
+
+        nearest_ix[nearest_ix<0] = 0
+        nearest_iy[nearest_iy<0] = 0
+        nearest_ix[nearest_ix>2*n] = 2*n
+        nearest_iy[nearest_iy>2*n] = 2*n
+
+        mixed_signals_photo = numpy.zeros(
+                (n_neurons, numpy.shape(self.stimulator_signals)[2]),
+                dtype=numpy.float64
+        )
+        for i,(nearest_ix_el,nearest_iy_el,nearest_iz_el) in enumerate(
+                zip(nearest_ix,nearest_iy,nearest_iz)
+        ):
+            temp,cutof = mixing_templates[int(nearest_iz_el)]
+            ss = self.stimulator_signals[
+                max(int(nearest_ix_el-cutof),0):int(nearest_ix_el+cutof+1),
+                max(int(nearest_iy_el-cutof),0):int(nearest_iy_el+cutof+1),
+                :
+            ]
+            if ss.size != 0:
+                temp = temp[
+                    max(int(cutof-nearest_ix_el),0):max(int(2*n+1+cutof-nearest_ix_el),0),
+                    max(int(cutof-nearest_iy_el),0):max(int(2*n+1+cutof-nearest_iy_el),0)
+                ]
+                mixed_signals_photo[i,:] = K*W*numpy.dot(
+                    temp.flatten(),
+                    numpy.reshape(ss,(len(temp.flatten()),-1))
+                ) * 1e-15 # CONVERSION FROM SECONDS TO FEMTO-SECONDS
+
+        return mixed_signals_photo
+
+
+    @staticmethod
+    def compress_array(array):
+        compressed = io.BytesIO()
+        np.savez_compressed(compressed, array)
+        return compressed
+
+    @staticmethod
+    def decompress_array(array):
+        array.seek(0)
+        return np.load(array)['arr_0']
+
+    def setup_scs(self, shared_scs):
+        stimulated_cell_indices = np.abs(self.mixed_signals_current.sum(axis=1)) > 0
+        self.stimulated_cells = self.sheet.pop.all_cells[stimulated_cell_indices]
+        self.mixed_signals_current = self.mixed_signals_current[stimulated_cell_indices]
+
+        if self.parameters.transfection_proportion != 1:
+            sel_idx = np.random.choice(range(len(self.stimulated_cells)),size=int(self.parameters.transfection_proportion*len(self.stimulated_cells)))
+            self.stimulated_cells = self.stimulated_cells[sel_idx]
+            self.mixed_signals_current = self.mixed_signals_current[sel_idx]
+
+        if shared_scs == None:
+            shared_scs = {}
+
+        self.scs = [self.sheet.sim.StepCurrentSource(times=[0.0], amplitudes=[0.0]) if cell not in shared_scs else shared_scs[cell] for cell in self.stimulated_cells]
+
+        for cell,scs in zip(self.stimulated_cells,self.scs):
+            if cell not in shared_scs:
+                cell.inject(scs)
+
+    def setup_scs_old(self, shared_scs):
+        if shared_scs != None:
+            self.scs = shared_scs
+        else:
+            self.scs = [self.sheet.sim.StepCurrentSource(times=[0.0], amplitudes=[0.0]) for cell in self.sheet.pop.all_cells]
+            for cell,scs in zip(self.sheet.pop.all_cells,self.scs):
+                cell.inject(scs)
+
+    def prepare_stimulation(self,duration,offset):
+        assert self.stimulation_duration == duration, "stimulation_duration != duration :"  + str(self.stimulation_duration) + " " + str(duration)
+        assert hasattr(self,"mixed_signals_current"), "Child class has to implement conversion of optical stimulation to current!"
+        times = numpy.arange(0,self.stimulation_duration,self.parameters.update_interval) + offset
+        times[0] = times[0] + 3*self.sheet.dt
+        for i in range(0,len(self.scs)):
+            self.scs[i].set_parameters(times=Sequence(times), amplitudes=Sequence(self.mixed_signals_current[i,:].flatten()),copy=False)
+
+    def inactivate(self,offset):
+        for scs in self.scs:
+            scs.set_parameters(times=[offset+3*self.sheet.dt], amplitudes=[0.0],copy=False)
+
+    def save_to_datastore(self,data_store,stimulus):
+        photo_mixed_signals = self.decompress_array(self.mixed_signals_photo)
+        data_store.full_datastore.add_analysis_result(
+            AnalogSignalList(
+                [NeoAnalogSignal(photo_mixed_signals[i, :], sampling_period=self.parameters.update_interval*qt.ms, units=qt.dimensionless) for i in range(len(self.stimulated_cells))],
+                [int(ID) for ID in self.stimulated_cells],
+                qt.dimensionless,
+                x_axis_name="time",
+                y_axis_name="optical_stimulation_photons",
+                sheet_name=self.sheet.name,
+                stimulus_id=str(stimulus),
+            )
+        )
+        data_store.full_datastore.add_analysis_result(
+            AnalogSignalList(
+                [NeoAnalogSignal(self.mixed_signals_current[i, :], sampling_period=self.parameters.update_interval*qt.ms, units=qt.nA) for i in range(len(self.stimulated_cells))],
+                [int(ID) for ID in self.stimulated_cells],
+                qt.nA,
+                x_axis_name="time",
+                y_axis_name="optical_stimulation_current",
+                sheet_name=self.sheet.name,
+                stimulus_id=str(stimulus),
+            )
+        )
+        data_store.full_datastore.add_analysis_result(
+            SingleValue(
+                value_name="optical_stimulation_array_compressed",
+                value=self.stimulator_signals,
+                value_units=qt.dimensionless,
+                sheet_name=self.sheet.name,
+                stimulus_id=str(stimulus),
+            )
+        )
+
+    def debug_plot_stimulator_signals():
+        pylab.figure(figsize=(10, 10))
+        ax = pylab.subplot(111)
+        ax.set_aspect("equal")
+        ax.set_title("Activation magnitude (stimulators)")
+        sc = ax.scatter(
+            coor_x.flatten(),
+            coor_y.flatten(),
+            c=numpy.squeeze(numpy.mean(signals, axis=2)).flatten(),
+            cmap="viridis",
+        )
+        pylab.colorbar(sc, ax=ax)
+        pylab.savefig(
+            Global.root_directory
+            + "orient_stim"
+            + sheet.name.replace("/", "_")
+            + ".png"
+        )
+        pylab.clf()
 
 def stimulating_pattern_flash(sheet, coor_x, coor_y, update_interval, parameters):
     """

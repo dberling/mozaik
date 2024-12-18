@@ -1,0 +1,10 @@
+{
+    "size": 400,
+    "spacing": 10,
+    "depth_sampling_step": 10,
+    "light_source_light_propagation_data": "tests/sheets/unity_radprof.pickle",
+    "update_interval": 1,
+    "neuron_node_data_path": "tests/sheets/test_neuron_node_data.npy",
+    "neuron_comp_data_path": "tests/sheets/test_neuron_comp_data.npy",
+    "soma_depth": 424
+}
