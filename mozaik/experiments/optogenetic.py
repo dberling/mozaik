@@ -96,11 +96,16 @@ class CorticalStimulationWithOptogeneticArray(Experiment):
 
         # whether we simulate morphology (choose stimulator from direct_stimulator.py & update params)
         if parameters['stimulator_array_parameters']['morphology'] != None:
-            stimulator_array_keys.update([
-                parameters['stimulator_array_parameters']['morphology']['neuron_node_data_path'],
-                parameters['stimulator_array_parameters']['morphology']['neuron_comp_data_path'],
-                parameters['stimulator_array_parameters']['morphology']['soma_depth']
-            ])
+            stimulator_array_keys.update(
+                ['neuron_node_data_path', 'neuron_comp_data_path', 'soma_depth']
+            )
+            parameters['stimulator_array_parameters']['neuron_node_data_path'] =\
+            parameters['stimulator_array_parameters']['morphology']['neuron_node_data_path']
+            parameters['stimulator_array_parameters']['neuron_comp_data_path'] =\
+            parameters['stimulator_array_parameters']['morphology']['neuron_comp_data_path']
+            parameters['stimulator_array_parameters']['soma_depth'] =\
+            parameters['stimulator_array_parameters']['morphology']['soma_depth']
+
             self.stimulator_class = OpticalStimulatorArrayMorphologyChR
             self.stimulator_class_name = 'OpticalStimulatorArrayMorphologyChR'
         else:
