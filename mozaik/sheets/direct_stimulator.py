@@ -898,10 +898,6 @@ class OpticalStimulatorArrayMorphologyChR(DirectStimulator):
                      depth of the network point neurons as originally defined in 
                      sheet.pop.positions[2] is ignored.
 
-    morphology_rotation_angles : array-like
-                     Rotation of morphology per point neuron. Should be random to avoid
-                     non-realistic symmetry across neurons.
-
     Notes
     -----
 
@@ -919,7 +915,6 @@ class OpticalStimulatorArrayMorphologyChR(DirectStimulator):
             'neuron_node_data_path': str,
             'neuron_comp_data_path': str,
             'soma_depth': int,
-            'morphology_rotation_angles': np.ndarray
     })
 
     def __init__(self, sheet,parameters,shared_scs=None,optimized_scs=True):
@@ -952,12 +947,14 @@ class OpticalStimulatorArrayMorphologyChR(DirectStimulator):
         )
         # set all neurons depth at soma to chosen parameter
         z_neurons = self.parameters.soma_depth * np.ones(shape=self.sheet.pop.positions[2].shape)
+        # generate random angles to rotate morphologies
+        morphology_rotation_angles = np.random.rand(self.sheet.pop.size) * 2 * np.pi
         # initialize morphology of neurons
         RONs = LoadReducedOptogeneticNeurons(
             point_neuron_positions=np.array([
                 x_neurons, y_neurons, z_neurons
             ]),
-            rotation_angles=self.parameters.morphology_rotation_angles,
+            rotation_angles=morphology_rotation_angles,
             neuron_node_data_path=self.parameters.neuron_node_data_path,
             neuron_comp_data_path=self.parameters.neuron_comp_data_path
         )
