@@ -1,10 +1,11 @@
 #!/usr/bin/env python
-from distutils.core import setup
-from distutils.command.install import INSTALL_SCHEMES
+from setuptools import setup
+#from distutils.core import setup
+#from distutils.command.install import INSTALL_SCHEMES
 import os
 
-for scheme in INSTALL_SCHEMES.values():
-    scheme['data'] = scheme['purelib']
+#for scheme in INSTALL_SCHEMES.values():
+#    scheme['data'] = scheme['purelib']
 
 data_files_list=[]
 data_path="mozaik/stimuli/vision/textureLib/"
