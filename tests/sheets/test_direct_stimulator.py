@@ -250,7 +250,6 @@ class TestOpticalStimulatorArrayMorphologyChR:
         cls.sheet = VisualCorticalUniformSheet3D(
             cls.model, ParameterSet(cls.sheet_params)
         )
-        cls.opt_array_params.morphology_rotation_angles = np.random.rand(cls.sheet.pop.size) * 2*np.pi
         cls.sheet.record()
         cls.duration = cls.opt_array_params.stimulating_signal_parameters.duration
 

@@ -887,6 +887,8 @@ class OpticalStimulatorArrayMorphologyChR(DirectStimulator):
                      must be in the range (0,1) - 0 means no cells, 1 means
                      all cells.
 
+    neuron_cond_scale_path: str
+                     Path where numpy array with cond scale fator is located.
     neuron_node_data_path : str
                      Path where numpy array with neuron morphology node data is located.
 
@@ -912,6 +914,7 @@ class OpticalStimulatorArrayMorphologyChR(DirectStimulator):
             'depth_sampling_step' : float,
             'light_source_light_propagation_data' : str,
             'transfection_proportion' : float,
+            'neuron_cond_scale_path': str,
             'neuron_node_data_path': str,
             'neuron_comp_data_path': str,
             'soma_depth': int,
@@ -947,18 +950,22 @@ class OpticalStimulatorArrayMorphologyChR(DirectStimulator):
         )
         # set all neurons depth at soma to chosen parameter
         z_neurons = self.parameters.soma_depth * np.ones(shape=self.sheet.pop.positions[2].shape)
+
+        # use random generator to make angles independent
+        rng = np.random.default_rng(seed=42)  # Replace 42 with any seed you like
         # generate random angles to rotate morphologies
-        morphology_rotation_angles = np.random.rand(self.sheet.pop.size) * 2 * np.pi
+        morphology_rotation_angles = rng.random(self.sheet.pop.size) * 2 * np.pi
+        #morphology_rotation_angles = np.random.rand(self.sheet.pop.size) * 2 * np.pi
         # initialize morphology of neurons
         RONs = LoadReducedOptogeneticNeurons(
             point_neuron_positions=np.array([
                 x_neurons, y_neurons, z_neurons
             ]),
             rotation_angles=morphology_rotation_angles,
+            neuron_cond_scale_path = self.parameters.neuron_cond_scale_path,
             neuron_node_data_path=self.parameters.neuron_node_data_path,
             neuron_comp_data_path=self.parameters.neuron_comp_data_path
         )
-        print('RONs loaded.')
         # calculate light fluxes and extract their time evolution from self.stimulator_signals
         RONs.calc_light_fluxes(
                 func_xyz_to_flux=self.light_flux_lookup_photonsPERfsPERcm2,
@@ -966,7 +973,6 @@ class OpticalStimulatorArrayMorphologyChR(DirectStimulator):
                                max_depth=self.sheet.parameters.max_depth,
                                depth_sampling_step=self.parameters.depth_sampling_step)
                 )
-        print('RONs fluxes calculated.')
         self.stimulation_duration = numpy.shape(RONs.light_fluxes_over_time)[1] * self.parameters.update_interval
         self.times = numpy.arange(0,self.stimulation_duration,self.parameters.update_interval)
 
