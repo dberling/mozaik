@@ -61,9 +61,11 @@ class CorticalStimulationWithOptogeneticArray(Experiment):
                             neuron_node_data_path : str (omit if morphology=False)
                             neuron_comp_data_path : str (omit if morphology=False)
                             soma_depth : int            (omit if morphology=False)
+                            min_max_smplngstep_morphology_range : tuple (omit resp.)
+
                 The parameters correspond to
                 mozaik.sheets.direct_stimulator.OpticalStimulatorArrayChR class,
-                and if morphology is included should be extended by the listed 3
+                and if morphology is included should be extended by the listed 5
                 parameters of
                 mozaik.sheets.direct_simulator.OpticalStimulatorArrayMorphologyChR.
                 Parameters that are included in the original stimulator classes 
@@ -98,7 +100,7 @@ class CorticalStimulationWithOptogeneticArray(Experiment):
         # whether we simulate morphology (choose stimulator from direct_stimulator.py & update params)
         if parameters['stimulator_array_parameters']['morphology'] != None:
             stimulator_array_keys.update(
-                ['neuron_cond_scale_path', 'neuron_node_data_path', 'neuron_comp_data_path', 'soma_depth']
+                ['neuron_cond_scale_path', 'neuron_node_data_path', 'neuron_comp_data_path', 'soma_depth', 'min_max_smplngstep_morphology_range']
             )
             parameters['stimulator_array_parameters']['neuron_cond_scale_path'] =\
             parameters['stimulator_array_parameters']['morphology']['neuron_cond_scale_path']
@@ -108,6 +110,10 @@ class CorticalStimulationWithOptogeneticArray(Experiment):
             parameters['stimulator_array_parameters']['morphology']['neuron_comp_data_path']
             parameters['stimulator_array_parameters']['soma_depth'] =\
             parameters['stimulator_array_parameters']['morphology']['soma_depth']
+            parameters['stimulator_array_parameters']['min_max_smplngstep_morphology_range'] =\
+            parameters[
+                'stimulator_array_parameters'
+            ]['morphology']['min_max_smplngstep_morphology_range']
 
             self.stimulator_class = OpticalStimulatorArrayMorphologyChR
             self.stimulator_class_name = 'OpticalStimulatorArrayMorphologyChR'

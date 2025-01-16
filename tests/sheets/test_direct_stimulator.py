@@ -228,8 +228,8 @@ class TestOpticalStimulatorArrayMorphologyChR:
         model_params = load_parameters(test_dir + "/sheets/model_params")
         model_params.null_stimulus_period = 200
         cls.sheet_params = load_parameters(test_dir + "/sheets/exc_sheet_params")
-        cls.sheet_params.min_depth = 0
-        cls.sheet_params.max_depth = 800
+        cls.sheet_params.min_depth = 100
+        cls.sheet_params.max_depth = 400
         cls.opt_array_params = load_parameters(test_dir + "/sheets/opt_array_morphology_params")
         cls.opt_array_params["transfection_proportion"] = 1.0
         cls.opt_array_params["stimulating_signal"] = (

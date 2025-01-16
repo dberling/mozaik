@@ -7,5 +7,6 @@
     "neuron_cond_scale_path": "tests/sheets/test_neuron_cond_scale.npy",
     "neuron_node_data_path": "tests/sheets/test_neuron_node_data.npy",
     "neuron_comp_data_path": "tests/sheets/test_neuron_comp_data.npy",
-    "soma_depth": 424
+    "soma_depth": 424,
+    "min_max_smplngstep_morphology_range": (0,800,5),
 }

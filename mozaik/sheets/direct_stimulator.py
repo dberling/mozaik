@@ -37,6 +37,7 @@ from numba import jit
 
 from builtins import zip
 
+from memory_profiler import profile
 from RONs import LoadReducedOptogeneticNeurons
 
 from mpi4py import MPI
@@ -900,6 +901,15 @@ class OpticalStimulatorArrayMorphologyChR(DirectStimulator):
                      depth of the network point neurons as originally defined in 
                      sheet.pop.positions[2] is ignored.
 
+    min_max_smplngstep_morphology_range : tuple
+                     Tuple with (min, max depth, sampling_step). Min, max depth relates
+                     to the range within which the morphology is located. Min refers to
+                     the minimal distance from surface to e.g. the apical dendrite. 
+                     Max to the deepest compartment. When calculating the light fluxes,
+                     these infos will be used to define the sampling of the depths of
+                     compartments of the neuron.
+
+
     Notes
     -----
 
@@ -918,8 +928,9 @@ class OpticalStimulatorArrayMorphologyChR(DirectStimulator):
             'neuron_node_data_path': str,
             'neuron_comp_data_path': str,
             'soma_depth': int,
+            'min_max_smplngstep_morphology_range': tuple,
     })
-
+    @profile
     def __init__(self, sheet,parameters,shared_scs=None,optimized_scs=True):
         DirectStimulator.__init__(self, sheet,parameters)
 
@@ -968,11 +979,13 @@ class OpticalStimulatorArrayMorphologyChR(DirectStimulator):
         )
         # calculate light fluxes and extract their time evolution from self.stimulator_signals
         RONs.calc_light_fluxes(
-                func_xyz_to_flux=self.light_flux_lookup_photonsPERfsPERcm2,
-                func_args=dict(min_depth=self.sheet.parameters.min_depth,
-                               max_depth=self.sheet.parameters.max_depth,
-                               depth_sampling_step=self.parameters.depth_sampling_step)
-                )
+            func_xyz_to_flux=self.light_flux_lookup_photonsPERfsPERcm2,
+            func_args=dict(
+                min_depth=self.parameters.min_max_smplngstep_morphology_range[0],
+                max_depth=self.parameters.min_max_smplngstep_morphology_range[1],
+                depth_sampling_step=self.parameters.min_max_smplngstep_morphology_range[2]
+            )
+        )
         self.stimulation_duration = numpy.shape(RONs.light_fluxes_over_time)[1] * self.parameters.update_interval
         self.times = numpy.arange(0,self.stimulation_duration,self.parameters.update_interval)
 
@@ -999,6 +1012,7 @@ class OpticalStimulatorArrayMorphologyChR(DirectStimulator):
         self.stimulator_signals = self.compress_array(self.stimulator_signals)
 
 
+    @profile
     def light_flux_lookup_photonsPERfsPERcm2(self, xx, yy, zz, min_depth, max_depth, depth_sampling_step):
         """
         Important difference to previous light flux look-up which returns photons/s/cm2 --> note the change
