@@ -37,8 +37,8 @@ from numba import jit
 
 from builtins import zip
 
-from memory_profiler import profile
 from RONs import LoadReducedOptogeneticNeurons
+from RONs import ChR_dynamics
 
 from mpi4py import MPI
 
@@ -707,6 +707,7 @@ class OpticalStimulatorArrayChR(OpticalStimulatorArray):
         pylab.savefig(Global.root_directory +'OpticalStimulatorArrayTest_' + self.sheet.name.replace('/','_') + '.png')
         pylab.clf()
 
+'''
 class ChR_dynamics:
     """
     Model for ChrimsonR as developed by Sabatier et al and used in Antolik et al. 2021.
@@ -738,7 +739,7 @@ class ChR_dynamics:
     def update_state0(self, state):
         self.state0 = state
 
-    def _step(self, state: np.ndarray, I: float, sampling_period: float) -> np.ndarray:
+    def _step(self, state: np.ndarray, I: float) -> np.ndarray:
 
         O1,O2,C1,C2,S = state
         _O1 = - self.O1toC1 * O1                    + self.PhoC1toO1*I * C1
@@ -747,7 +748,7 @@ class ChR_dynamics:
         _C1 = self.O1toC1 * O1    - self.PhoC1toO1*I * C1  - self.PhoC1toC2*I * C1   + self.C2toC1 * C2             + self.PhoC2toC1*I * C2  + self.StoC1 * S
         _C2 = self.O2toC2 * O2    - self.C2toC1 * C2             - self.PhoC2toC1*I * C2   + self.PhoC1toC2*I * C1  - self.PhoC2toO2*I * C2
 
-        return np.array([_O1,_O2,_C1,_C2,_S]) * sampling_period
+        return np.array([_O1,_O2,_C1,_C2,_S])
 
     def _forward_integration(self, flux_photonsPERcm2_fs, sampling_period):
         """
@@ -764,7 +765,7 @@ class ChR_dynamics:
         channel_states = []
         channel_state = y0.copy()
         for intensity in flux_photonsPERcm2_fs:
-            channel_state += self._step(channel_state, I=intensity, sampling_period=sampling_period)
+            channel_state += self._step(channel_state, I=intensity) * sampling_period
             channel_states.append(copy(channel_state))
         channel_states = np.array(channel_states)
         O1 = channel_states[:,0,:]
@@ -821,8 +822,10 @@ class ChR_dynamics:
         ChR_conductance = self._interpolate_time_axis(
             ChR_conductance, update_interval=calculation_update_interval, new_update_interval=update_interval
         )
+        np.save('flux_save.npy', fluxes_photonsPERcm2_fs)
+        assert False, f"fluxes: {fluxes_photonsPERcm2_fs}"
         return ChR_conductance
-
+'''
 
 class OpticalStimulatorArrayMorphologyChR(DirectStimulator):
     """
@@ -908,6 +911,9 @@ class OpticalStimulatorArrayMorphologyChR(DirectStimulator):
                      Max to the deepest compartment. When calculating the light fluxes,
                      these infos will be used to define the sampling of the depths of
                      compartments of the neuron.
+    ChR_calc_RAM_reduction_split : int
+                     Used to split ChR channel conductance calculation into chunks to
+                     avoid exhausting RAM.
 
 
     Notes
@@ -929,8 +935,8 @@ class OpticalStimulatorArrayMorphologyChR(DirectStimulator):
             'neuron_comp_data_path': str,
             'soma_depth': int,
             'min_max_smplngstep_morphology_range': tuple,
+            'ChR_calc_RAM_reduction_split': int,
     })
-    @profile
     def __init__(self, sheet,parameters,shared_scs=None,optimized_scs=True):
         DirectStimulator.__init__(self, sheet,parameters)
 
@@ -994,8 +1000,11 @@ class OpticalStimulatorArrayMorphologyChR(DirectStimulator):
 
         # calculate effective optogenetic somatic conductance
         RONs.calc_effective_somatic_ChR_conductance(
-            func_flux_to_conductance=ChR_model.calculate,
-            func_args=dict(update_interval=self.parameters.update_interval)
+            #func_flux_to_conductance=ChR_model.calculate,
+            #func_args=dict(update_interval=self.parameters.update_interval),
+            func_flux_to_conductance=ChR_model.calculate_with_RAM_reduction,
+            func_args=dict(update_interval=self.parameters.update_interval,
+                           RAM_reduction_split=self.parameters.ChR_calc_RAM_reduction_split)
         )
         # transform into injection current
         # 0.060V average membrane potential, current should be nA, which is I [nA] = G[nS] * U [V]
@@ -1012,7 +1021,6 @@ class OpticalStimulatorArrayMorphologyChR(DirectStimulator):
         self.stimulator_signals = self.compress_array(self.stimulator_signals)
 
 
-    @profile
     def light_flux_lookup_photonsPERfsPERcm2(self, xx, yy, zz, min_depth, max_depth, depth_sampling_step):
         """
         Important difference to previous light flux look-up which returns photons/s/cm2 --> note the change

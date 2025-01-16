@@ -9,4 +9,5 @@
     "neuron_comp_data_path": "tests/sheets/test_neuron_comp_data.npy",
     "soma_depth": 424,
     "min_max_smplngstep_morphology_range": (0,800,5),
+    "ChR_calc_RAM_reduction_split": 1,
 }

@@ -62,6 +62,7 @@ class CorticalStimulationWithOptogeneticArray(Experiment):
                             neuron_comp_data_path : str (omit if morphology=False)
                             soma_depth : int            (omit if morphology=False)
                             min_max_smplngstep_morphology_range : tuple (omit resp.)
+                            ChR_calc_RAM_reduction_split : int          (omit resp.)
 
                 The parameters correspond to
                 mozaik.sheets.direct_stimulator.OpticalStimulatorArrayChR class,
@@ -100,7 +101,7 @@ class CorticalStimulationWithOptogeneticArray(Experiment):
         # whether we simulate morphology (choose stimulator from direct_stimulator.py & update params)
         if parameters['stimulator_array_parameters']['morphology'] != None:
             stimulator_array_keys.update(
-                ['neuron_cond_scale_path', 'neuron_node_data_path', 'neuron_comp_data_path', 'soma_depth', 'min_max_smplngstep_morphology_range']
+                ['neuron_cond_scale_path', 'neuron_node_data_path', 'neuron_comp_data_path', 'soma_depth', 'min_max_smplngstep_morphology_range', 'ChR_calc_RAM_reduction_split']
             )
             parameters['stimulator_array_parameters']['neuron_cond_scale_path'] =\
             parameters['stimulator_array_parameters']['morphology']['neuron_cond_scale_path']
@@ -114,6 +115,8 @@ class CorticalStimulationWithOptogeneticArray(Experiment):
             parameters[
                 'stimulator_array_parameters'
             ]['morphology']['min_max_smplngstep_morphology_range']
+            parameters['stimulator_array_parameters']['ChR_calc_RAM_reduction_split'] =\
+            parameters['stimulator_array_parameters']['morphology']['ChR_calc_RAM_reduction_split']
 
             self.stimulator_class = OpticalStimulatorArrayMorphologyChR
             self.stimulator_class_name = 'OpticalStimulatorArrayMorphologyChR'
