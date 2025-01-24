@@ -1048,17 +1048,17 @@ class OpticalStimulatorArrayMorphologyChR(DirectStimulator):
 
     def save_to_datastore(self,data_store,stimulus):
         photo_mixed_signals = self.decompress_array(self.mixed_signals_photo)
-        data_store.full_datastore.add_analysis_result(
-            AnalogSignalList(
-                [NeoAnalogSignal(photo_mixed_signals[i, :], sampling_period=self.parameters.update_interval*qt.ms, units=qt.dimensionless) for i in range(len(self.stimulated_cells))],
-                [int(ID) for ID in self.stimulated_cells],
-                qt.dimensionless,
-                x_axis_name="time",
-                y_axis_name="optical_stimulation_photons",
-                sheet_name=self.sheet.name,
-                stimulus_id=str(stimulus),
-            )
-        )
+        #data_store.full_datastore.add_analysis_result(
+        #    AnalogSignalList(
+        #        [NeoAnalogSignal(photo_mixed_signals[i, :], sampling_period=self.parameters.update_interval*qt.ms, units=qt.dimensionless) for i in range(len(self.stimulated_cells))],
+        #        [int(ID) for ID in self.stimulated_cells],
+        #        qt.dimensionless,
+        #        x_axis_name="time",
+        #        y_axis_name="optical_stimulation_photons",
+        #        sheet_name=self.sheet.name,
+        #        stimulus_id=str(stimulus),
+        #    )
+        #)
         data_store.full_datastore.add_analysis_result(
             AnalogSignalList(
                 [NeoAnalogSignal(self.mixed_signals_current[i, :], sampling_period=self.parameters.update_interval*qt.ms, units=qt.nA) for i in range(len(self.stimulated_cells))],
